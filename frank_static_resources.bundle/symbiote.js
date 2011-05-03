@@ -128,11 +128,23 @@ $(document).ready(function() {
     sendCommand(command);
   });
 
-$('#delete_button').click( function(){
+$('#tag_button').click( function(){
     var command = {
       query: $("input#query").val(),
       operation: {
-        method_name: 'delete',
+        method_name: 'tag',
+        arguments: []
+      }
+    };
+
+    sendCommand(command);
+  });
+
+$('#inspect_button').click( function(){
+    var command = {
+      query: $("input#query").val(),
+      operation: {
+        method_name: 'inspect',
         arguments: []
       }
     };
