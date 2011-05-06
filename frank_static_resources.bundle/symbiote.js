@@ -1,155 +1,435 @@
-//GLOBALS
-var G = {
-  base_url: "http://localhost:37265"
+/*jslint browser: true, white: false, devel: true */
+/*global window: true, Raphael: true, $: true, _: true */
+
+
+var symbiote = {};
+
+symbiote.baseUrlFor = function(path){ return window.location.protocol + "//" + window.location.host + "/" + path; };
+
+symbiote.UiLocator = function(){
+  var SCREEN_OFFSET = { x: 24, y: 120 },
+      allViews = [],
+      viewsHoveredHandler = _.identity,
+      viewsLeftHandler = _.identity,
+      paper = new Raphael( 'ui-locator-view', 370, 720 ),
+      viewIndicator = { remove: _.identity },
+      screenshotUrl = symbiote.baseUrlFor( "screenshot" ),
+      backdrop = { remove: _.identity },
+      deviceBackground = paper.rect( 6, 6, 360, 708, 40 ).attr( {
+        'fill': 'black',
+        'stroke': 'gray',
+        'stroke-width': 4,
+      });
+
+  paper.circle( 180+6, 655, 34 ).attr( 'fill', '90-#303030-#101010' ); // home button
+  paper.rect( 180+6, 655, 22, 22, 5 ).attr({  // square inside home button
+    'stroke': 'gray',
+    'stroke-width': 2,
+  }).translate( -11, -11 ); 
+
+  function pointIsWithinView(point,view){
+    var offsetFromOrigin = {
+      x: point.x - view.accessibilityFrame.origin.x,
+      y: point.y - view.accessibilityFrame.origin.y
+    },
+        isInHorz = offsetFromOrigin.x >= 0 && offsetFromOrigin.x <= view.accessibilityFrame.size.width,
+        isInVert = offsetFromOrigin.y >= 0 && offsetFromOrigin.y <= view.accessibilityFrame.size.height;
+    return isInHorz && isInVert;
+  }
+
+
+  function findViewsAt( point ){
+    return _.filter( allViews, function(view){
+      return pointIsWithinView(point,view);
+    });
+
+  }
+
+  function backdropHover(e){
+    var coords = { 
+      x: e.offsetX - SCREEN_OFFSET.x, 
+      y: e.offsetY - SCREEN_OFFSET.y
+    };
+    viewsHoveredHandler( findViewsAt( coords) );
+  }
+
+  function backdropLeft(e){
+    viewsLeftHandler();
+  }
+
+  function showViewLocation( view ) {
+    viewIndicator.remove();
+
+    viewIndicator = paper.rect( 
+      view.accessibilityFrame.origin.x, 
+      view.accessibilityFrame.origin.y, 
+      view.accessibilityFrame.size.width, 
+      view.accessibilityFrame.size.height
+    )
+      .attr({
+        fill: '#aaff00',
+        opacity: 0.8,
+        stroke: 'black',
+      })
+      .translate( SCREEN_OFFSET.x, SCREEN_OFFSET.y );
+  }
+
+  function hideViewLocation() {
+    viewIndicator.remove();
+  }
+
+  function updateBackdrop(){
+    var cacheBusterUrl = screenshotUrl+"?"+(new Date()).getTime();
+    backdrop.remove();
+    backdrop = paper.image( cacheBusterUrl, SCREEN_OFFSET.x, SCREEN_OFFSET.y, 320, 480 );
+    backdrop.mousemove( backdropHover );
+    backdrop.mouseout( backdropLeft );
+  }
+
+  function updateViews(views){
+    allViews = views;
+  }
+
+  return {
+    showViewLocation: showViewLocation,
+    hideViewLocation: hideViewLocation,
+    updateBackdrop: updateBackdrop,
+    updateViews: updateViews,
+    viewsHovered: function(handler){ viewsHoveredHandler = handler; },
+    viewsLeft: function(handler){ viewsLeftHandler = handler; },
+  };
 };
 
-var Symbiote = {
-  is_error_response: function( response ){
-    return 'ERROR' == response.outcome;
-  },
-  display_error_response: function( response ){
-    alert( "Frank isn't happy: "+response.reason+"\n"
-        +"details: "+response.details );
-  },
-  display_chatting_popup: function() {
-    
-    $('#loading').show();
-  },
-  hide_chatting_popup: function() {
-    $('#loading').hide();
+symbiote.LiveView = function(updateViewFn,updateHeirarchyFn){
+
+  var viewTimer,heirTimer;
+
+  function stop(){
+    window.clearInterval(viewTimer);
+    window.clearInterval(heirTimer);
   }
-}
 
-function sendCommand(command) {
-    Symbiote.display_chatting_popup();
-    $.ajax({
-           type: "POST",
-           dataType: "json",
-           data: JSON.stringify( command ),
-           url: G.base_url + "/map",
-           success: function(data) {
-           if( Symbiote.is_error_response( data ) )
-           Symbiote.display_error_response( data );
-           },
-           error: function(xhr,status,error) {
-           alert( "Error while talking to Frank: " + status );
-           $('#loading').hide();
-           },
-           complete: function(xhr,status) {
-           Symbiote.hide_chatting_popup();
-           }
-           });
-}
+  function start(){
+    stop(); // stop any existing timer
 
-function classClicked(link){    
+    viewTimer = window.setInterval( function(){
+      updateViewFn();
+    }, 700 );
+    heirTimer = window.setInterval( function(){
+      updateHeirarchyFn();
+    }, 2000 );
+  }
+
+  return {
+    start: start,
+    stop: stop
+  };
+};
+
+
+$(document).ready(function() { 
+
+  var $domDetails = $('#dom_detail'),
+      $domList = $('div#dom_dump > ul'),
+      $domAccessibleDump = $('div#accessible-views'),
+      $loading = $('#loading'),
+      INTERESTING_PROPERTIES = ['class', 'accessibilityLabel', 'tag', 'alpha', 'isHidden'],
+      uiLocator = symbiote.UiLocator(),
+      liveView;
+
+
+  function domListItemForView(view){
+    var $found = null;
+    $('a',$domList).each(function(i,el){
+      var $el = $(el);
+      if( $el.data('rawView') === view ){
+        $found = $el;
+        return false;
+      }
+    });
+    return $found;
+  }
+
+  uiLocator.viewsHovered( function(views){
+    var $lis = _.map( views, domListItemForView );
+
+    $('a',$domList).removeClass('hovered-in-locator');
+
+    _.each( $lis, function($li){
+      $li.addClass('hovered-in-locator');
+    });
+  });
+
+  uiLocator.viewsLeft( function(){
+    $('a',$domList).removeClass('hovered-in-locator');
+  });
+  
+  
+  
+
+
+	$("#list-tabs").tabs();
+	$("#inspect-tabs").tabs();
+
+  function selectViewDetailsTab(){
+    $("#inspect-tabs").tabs('select', 0);
+  }
+  function selectLocatorTab(){
+    $("#inspect-tabs").tabs('select', 1);
+  }
+
+
+  function isErrorResponse( response ){
+    return 'ERROR' === response.outcome;
+  }
+
+  function displayErrorResponse( response ){
+    alert( "Frank isn't happy: "+response.reason+"\n" +
+        "details: "+response.details );
+  }
+
+  function showLoadingUI() {
+    $loading.show();
+  }
+
+  function hideLoadingUI() {
+    $loading.hide();
+  }
+
+
+  function displayDetailsFor( view ) {
+    console.debug( 'displaying details for:', view );
+
+    var $table = $('<table/>');
+
+    function tableRow( propertyName, propertyValue, cssClass ){
+      if( propertyValue === null ){
+        propertyValue = 'null';
+      }else if( typeof propertyValue === 'object' ){ 
+        propertyValue = JSON.stringify(propertyValue);
+      } 
+
+      return $('<tr/>').addClass(cssClass)
+        .append( 
+          $('<td/>').text(propertyName),
+          $('<td/>').text(propertyValue) )
+        .appendTo( $table );
+    }
+
+    
+    _.each( INTERESTING_PROPERTIES, function(propertyName) {
+      if( !view.hasOwnProperty(propertyName) ){ return; }
+
+      var propertyValue = view[propertyName];
+      $table.append( tableRow( propertyName, propertyValue, 'interesting' ) );
+    });
+
+
+    _.each( _.keys(view).sort(), function(propertyName) {
+      if( propertyName === 'subviews' ){ return; }
+      if( _.contains( INTERESTING_PROPERTIES, propertyName ) ){ return; } // don't want to include the interesting properties twice
+
+      var propertyValue = view[propertyName];
+      $table.append( tableRow( propertyName, propertyValue ) );
+    });
+
+    $domDetails.children().remove();
+    $table.appendTo( $domDetails );
+  }
+
+  function treeElementSelected(){
+    var $this = $(this),
+        selectedView = $this.data('rawView');
+    displayDetailsFor( selectedView );
+    selectViewDetailsTab();
+
+    $('a',$domList).removeClass('selected');
+    $this.addClass('selected');
+  }
+
+  function treeElementEntered(){
+    var view = $(this).data('rawView');
+    uiLocator.showViewLocation( view );
+  }
+
+  function treeElementLeft(){
+    uiLocator.hideViewLocation();
+  }
+
+  function listItemTitleFor( rawView ) {
+    var title = ""+rawView['class'];
+    if( rawView.accessibilityLabel ) {
+      return title + ": '"+rawView.accessibilityLabel+"'";
+    }else{
+      return title;
+    }
+  }
+
+  function transformDumpedViewToListItem( rawView ) {
+    var title = listItemTitleFor( rawView ),
+        viewListItem = $("<li><a>"+title+"</a></li>"),
+        subviewList = $("<ul/>");
+
+    $('a',viewListItem).data( 'rawView', rawView );
+
+    _.each( rawView.subviews, function(subview) {
+      subviewList.append( transformDumpedViewToListItem( subview ) );
+    });
+    
+    viewListItem.append( subviewList );
+    return viewListItem; 
+  }
+
+  function updateDumpView( data ) {
+    $domList.children().remove();
+    $domList.append( transformDumpedViewToListItem( data ) );
+    $('a', $domList ).bind( 'click', treeElementSelected );
+    $('a', $domList ).bind( 'mouseenter', treeElementEntered );
+    $('a', $domList ).bind( 'mouseleave', treeElementLeft );
+    $domList.treeview({
+                 collapsed: false
+                 });
+  }
+
+  function flattenViews( rootView ) {
+
+    var flattenedViews = [];
+
+    function collectSubViews( view ) {
+      flattenedViews.push( view );
+      _.each( view.subviews, function(subview){
+        collectSubViews( subview );
+      });
+    } 
+
+    collectSubViews( rootView, flattenedViews );
+    return flattenedViews;
+  }
+
+  function filterAccessibleViews( views ) {
+    return _.filter( views, function(view){
+      return view.accessibilityLabel;
+    });
+  }
+
+  function selectorForAccessibleView( view ) {
+    return _.template( 
+        "view:'<%=viewClass%>' marked:'<%=viewLabel%>'", 
+        { viewClass: view['class'], viewLabel: view.accessibilityLabel }
+        );
+  }
+
+
+
+  function sendFlashCommand( selector ) {
     var command = {
-      query: "view marked:'" + link.innerHTML + "'",
+      query: selector,
       operation: {
         method_name: 'flash',
         arguments: []
       }
     };
 
-    sendCommand(command);
-}
+    showLoadingUI();
+    $.ajax({
+      type: "POST",
+      dataType: "json",
+      data: JSON.stringify( command ),
+      url: symbiote.baseUrlFor( "/map" ),
+      success: function(data) {
+        if( isErrorResponse( data ) ) {
+          displayErrorResponse( data );
+        }
+      },
+      error: function(xhr,status,error) {
+        alert( "Error while talking to Frank: " + status );
+      },
+      complete: function(xhr,status) {
+        hideLoadingUI();
+      }
+    });
+  }
 
-$(document).ready(function() { 
-	$("#tabs").tabs();
-	$('#loading').hide();
+    function updateAccessibleViews( views ) {
+    var accessibleViews = filterAccessibleViews( views ),
+        divTemplate = _.template( '<div><a href="#" title="<%=selector%>"><span class="viewClass"><%=viewClass%></span> with label "<span class="viewLabel"><%=viewLabel%></span>"</a></div>' );
+
+    $domAccessibleDump.children().remove();
+
+    _.each( accessibleViews, function( view ) {
+      var selector = selectorForAccessibleView(view),
+          divHtml = divTemplate({ selector: selector, viewClass: view['class'], viewLabel: view.accessibilityLabel });
+
+      $(divHtml)
+        .click( function(){
+          sendFlashCommand( selector );
+          return false;
+        })
+        .appendTo( $domAccessibleDump );
+    });
+  }
+
+
+  function refreshViewHeirarchy(){
+    showLoadingUI();
+
+    $.ajax({
+      type: "POST",
+      dataType: "json",
+      data: '["DUMMY"]', // a bug in cocoahttpserver means it can't handle POSTs without a body
+      url: symbiote.baseUrlFor( "/dump" ),
+      success: function(data) {
+        console.debug( 'dump returned', data );
+
+        var allViews = flattenViews(data);
+
+        updateDumpView( data );
+        updateAccessibleViews( allViews );
+        uiLocator.updateViews( allViews );
+      },
+      error: function(xhr,status,error) {
+        alert( "Error while talking to Frank: " + status );
+      },
+      complete: function(){
+        hideLoadingUI();
+      }
+    });
+  }
+
+
+
 	$('#dump_button').click( function(){
-	 Symbiote.display_chatting_popup();
-
-    $.ajax({
-      type: "POST",
-      dataType: "json",
-      data: '["DUMMY"]', // a bug in cocoahttpserver means it can't handle POSTs without a body
-      url: G.base_url + "/dump",
-      success: function(data) {
-		$('div#dom_dump').html( JsonTools.convert_json_to_dom( data ) );
-		   $("#dom_dump").treeview({
-								   collapsed: false
-								   });
-		 Symbiote.hide_chatting_popup();						   
-      },
-      error: function(xhr,status,error) {
-        $('#loading').hide();
-        alert( "Error while talking to Frank: " + status );
-      }
-    });
-    
-    $.ajax({
-      type: "POST",
-      dataType: "json",
-      data: '["DUMMY"]', // a bug in cocoahttpserver means it can't handle POSTs without a body
-      url: G.base_url + "/inspect",
-      success: function(data) {
-		$('#loading').hide();
-		var test = eval(data);
-		var html = '<table id="accessibility">';
-        html +=	'<tr><th>Marked (accessibilityLabel)</th><th>Class</th></tr>';
-        	
-		for (index in test)
-  		{
-  			var elem = test[index];
-  			html += '<tr><td><a onClick="javascript: classClicked(this);" href="#">' + elem.label+ '</a></td><td>' + elem.class + '</td></tr>';
-  		}
-		html += '</table>';
-		$('div#access_dump').html(html);
-      },
-      error: function(xhr,status,error) {
-      $('#loading').hide();
-        alert( "Error while talking to Frank: " + status );
-      }
-    });
-    
+    refreshViewHeirarchy();
+    uiLocator.updateBackdrop();
   });
 
   $('#flash_button').click( function(){
-    var command = {
-      query: $("input#query").val(),
-      operation: {
-        method_name: 'flash',
-        arguments: []
-      }
-    };
-
-    sendCommand(command);
+    sendFlashCommand( $("input#query").val() );
   });
+
   
-  $('#touch_button').click( function(){
-    var command = {
-      query: $("input#query").val(),
-      operation: {
-        method_name: 'touch',
-        arguments: []
-      }
-    };
+  liveView = symbiote.LiveView( uiLocator.updateBackdrop, refreshViewHeirarchy );
 
-    sendCommand(command);
+  $("#live-view button").click( function(){
+    $(this).toggleClass('down');
+    if( $(this).hasClass('down') ){
+      liveView.start();
+      $(this).text('stop Live View');
+    }else{
+      liveView.stop();
+      $(this).text('start Live View');
+    }
   });
 
-$('#tag_button').click( function(){
-    var command = {
-      query: $("input#query").val(),
-      operation: {
-        method_name: 'tag',
-        arguments: []
-      }
-    };
 
-    sendCommand(command);
-  });
+  //initial UI setup
 
-$('#inspect_button').click( function(){
-    var command = {
-      query: $("input#query").val(),
-      operation: {
-        method_name: 'inspect',
-        arguments: []
-      }
-    };
-
-    sendCommand(command);
-  });
-
+	$('#loading').hide();
+  
+  // do initial DOM dump straight after page has finished loading
+  $('#dump_button').click();
+  
+  // show locator tab by default
+  selectLocatorTab();
+  
 });
