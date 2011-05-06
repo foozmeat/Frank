@@ -319,13 +319,11 @@ $(document).ready(function() {
         );
   }
 
-
-
-  function sendFlashCommand( selector ) {
+  function sendCommand( selector, method ) {
     var command = {
       query: selector,
       operation: {
-        method_name: 'flash',
+        method_name: method,
         arguments: []
       }
     };
@@ -404,7 +402,10 @@ $(document).ready(function() {
   });
 
   $('#flash_button').click( function(){
-    sendFlashCommand( $("input#query").val() );
+    sendCommand( $("input#query").val(), 'flash' );
+  });
+  $('#tag_button').click( function(){
+    sendCommand( $("input#query").val(), 'tag' );
   });
 
   
