@@ -2,6 +2,7 @@
 #import "UITraversal.h"
 #import "UIQueryTableViewCell.h"
 #import "UIQueryTableView.h"
+#import "UIQueryScrollView.h"
 #import "UIQueryAll.h"
 #import "UIDescendants.h"
 #import "UIRedoer.h"
@@ -83,6 +84,8 @@
 		return [UIQueryTableViewCell withViews:array className:className];
 	} else if ([className isEqualToString:@"UITableView"]) {
 		return [UIQueryTableView withViews:array className:className];
+	} else if ([className isEqualToString:@"UIScrollView"]) {
+		return [UIQueryScrollView withViews:array className:className];
 	} else {
 		return [UIQuery withViews:array className:className];
 	}
