@@ -11,9 +11,9 @@
 }
 
 -(UIQuery *)scrollToBottom {
-	UIScrollView *table = self;
-	CGPoint bottomOffset = CGPointMake(0, [table contentSize].height);
-	[table setContentOffset: bottomOffset animated: YES];
+	UIScrollView *scroller = (UIScrollView *)self;
+	CGPoint bottomOffset = CGPointMake(0, [scroller contentSize].height);
+	[scroller setContentOffset: bottomOffset animated: YES];
 	return [UIQuery withViews:views className:className];
 }
 
