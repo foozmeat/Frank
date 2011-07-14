@@ -380,11 +380,11 @@ $(document).ready(function() {
 
 
 
-  function sendFlashCommand( selector ) {
+  function sendCommand( selector, command ) {
     var command = {
       query: selector,
       operation: {
-        method_name: 'flash',
+        method_name: command,
         arguments: []
       }
     };
@@ -481,7 +481,15 @@ $(document).ready(function() {
   });
 
   $('#flash_button').click( function(){
-    sendFlashCommand( $("input#query").val() );
+    sendCommand( $("input#query").val(), "flash" );
+  });
+
+  $('#touch_button').click( function(){
+    sendCommand( $("input#query").val(), "touch" );
+  });
+
+  $('#tap_button').click( function(){
+    sendCommand( $("input#query").val(), "tap" );
   });
 
   
