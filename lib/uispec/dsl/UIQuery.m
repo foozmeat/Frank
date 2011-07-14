@@ -17,6 +17,7 @@
 #import "UIFilter.h"
 #import "UIBug.h"
 #import "UIQueryExpectation.h"
+#import "VisibleTouch.h"
 
 @implementation UIQuery
 
@@ -418,6 +419,60 @@
 	return [UIQuery withViews:views className:className];
 }
 
+- (UIQuery *)touchxy:(NSNumber *)x ycoord:(NSNumber *)y
+{
+    return [self touchx:x y:y]; // call new function name but allow for choice
+}
+
+- (UIQuery *)touchx:(NSNumber *)x y:(NSNumber *)y {
+	//NSLog(@"UIQuery - (UIQuery *)touchxy:(int)x ycoord:(int)y = %@, %@", x, y);
+	[[UIQueryExpectation withQuery:self] exist:@"before you can touch it"];
+	
+	for (UIView *aView in [self targetViews]) {
+		UITouch *aTouch = [[UITouch alloc] initInView:aView xcoord:[x intValue] ycoord:[y intValue]];
+        
+        // Create a view to display a visible touch on the screen with a center of the touch
+        CGPoint thePoint = CGPointMake([x floatValue], [y floatValue]);
+        UIView *visibleTouch = [[VisibleTouch alloc] initWithCenter:thePoint];
+        [[aView window] addSubview:visibleTouch];
+        [[aView window] bringSubviewToFront:visibleTouch];
+        
+		UIEvent *eventDown = [[NSClassFromString(@"UITouchesEvent") alloc] initWithTouch:aTouch];
+		NSSet *touches = [[NSMutableSet alloc] initWithObjects:&aTouch count:1];
+		
+		[aTouch.view touchesBegan:touches withEvent:eventDown];
+        
+        // Send event to the gesture recognizers
+        for (UIGestureRecognizer *recognizer in [aView gestureRecognizers])
+        {
+            [recognizer touchesBegan:touches withEvent:eventDown];
+        }
+        
+        [self wait:.25]; // Pause so touch can be seen
+        
+		UIEvent *eventUp = [[NSClassFromString(@"UITouchesEvent") alloc] initWithTouch:aTouch];
+		[aTouch setPhase:UITouchPhaseEnded];
+		
+		[aTouch.view touchesEnded:touches withEvent:eventDown];
+        
+        for (UIGestureRecognizer *recognizer in [aView gestureRecognizers])
+        {
+            [recognizer touchesEnded:touches withEvent:eventDown];
+        }
+        
+        [visibleTouch removeFromSuperview];
+        [visibleTouch release];
+        
+		[eventDown release];
+		[eventUp release];
+		[touches release];
+		[aTouch release];
+		[self wait:.5];
+	}
+	return [UIQuery withViews:views className:className];
+}
+
+
 -(NSString *)description {
 	return [NSString stringWithFormat:@"UIQuery: %@", [views description]];
 }
@@ -556,6 +611,42 @@ UIQuery * $(NSMutableString *script, ...) {
 	return self;
 }
 
+
+- (id)initInView:(UIView *)view xcoord:(int)x ycoord:(int)y
+{
+	self = [super init];
+	if (self != nil)
+	{
+		CGRect frameInWindow;
+		if ([view isKindOfClass:[UIWindow class]])
+		{
+			frameInWindow = view.frame;
+		}
+		else
+		{
+			frameInWindow =
+			[view.window convertRect:view.frame fromView:view.superview];
+		}
+		
+		_tapCount = 1;
+		_locationInWindow =
+		CGPointMake(
+					frameInWindow.origin.x + x,
+					frameInWindow.origin.y + y);
+		_previousLocationInWindow = _locationInWindow;
+		
+		UIView *target = [view.window hitTest:_locationInWindow withEvent:nil];
+		
+		_window = [view.window retain];
+		_view = [target retain];
+		_phase = UITouchPhaseBegan;
+		_touchFlags._firstTouchForView = 1;
+		_touchFlags._isTap = 1;
+		_timestamp = [NSDate timeIntervalSinceReferenceDate];
+	}
+	return self;
+}
+
 //
 // setPhase:
 //
@@ -673,5 +764,4 @@ UIQuery * $(NSMutableString *script, ...) {
 }
 
 @end
-
 

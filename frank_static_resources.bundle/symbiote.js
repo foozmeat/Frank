@@ -7,25 +7,90 @@ var symbiote = {};
 symbiote.baseUrlFor = function(path){ return window.location.protocol + "//" + window.location.host + "/" + path; };
 
 symbiote.UiLocator = function(){
-  var SCREEN_OFFSET = { x: 24, y: 120 },
-      allViews = [],
-      viewsHoveredHandler = _.identity,
-      viewsLeftHandler = _.identity,
-      paper = new Raphael( 'ui-locator-view', 370, 720 ),
+  var allViews = [],
+      paper = new Raphael( 'ui-locator-view'),
       viewIndicator = { remove: _.identity },
       screenshotUrl = symbiote.baseUrlFor( "screenshot" ),
-      backdrop = { remove: _.identity },
-      deviceBackground = paper.rect( 6, 6, 360, 708, 40 ).attr( {
-        'fill': 'black',
-        'stroke': 'gray',
-        'stroke-width': 4,
-      });
+      backdrop = null,
+      erstaz = null;
 
-  paper.circle( 180+6, 655, 34 ).attr( 'fill', '90-#303030-#101010' ); // home button
-  paper.rect( 180+6, 655, 22, 22, 5 ).attr({  // square inside home button
-    'stroke': 'gray',
-    'stroke-width': 2,
-  }).translate( -11, -11 ); 
+  paper.canvas.setAttribute('preserveAspectRatio','xMidYMin meet');
+
+  function iPhoneErsatz(raphael){
+    var BACKDROP_FRAME = { x: 24, y: 120, width: 320, height: 480 };
+
+    function drawFakeDevice(backdrop){
+      
+      paper.canvas.setAttribute('width','100%');
+      paper.canvas.setAttribute('height','100%');
+      paper.canvas.setAttribute("viewBox", "0 0 380 720");
+
+      // main outline of device
+      paper.rect( 6, 6, 360, 708, 40 ).attr( {
+          'fill': 'black',
+          'stroke': 'gray',
+          'stroke-width': 4,
+        });
+
+      // home button
+      paper.circle( 180+6, 655, 34 ).attr( 'fill', '90-#303030-#101010' );
+
+      // square inside home button
+      paper.rect( 180+6, 655, 22, 22, 5 ).attr({  
+        'stroke': 'gray',
+        'stroke-width': 2,
+      }).translate( -11, -11 );
+
+      if( backdrop ){
+        // reposition backdrop within frame
+        backdrop.attr( BACKDROP_FRAME ).toFront();
+      }
+    }
+
+    return {
+      drawFakeDevice: drawFakeDevice,
+      screenOffset: function(){ return BACKDROP_FRAME; }
+    };
+
+  }
+
+  function iPadErsatz(raphael){
+    var BACKDROP_FRAME = { x: 55, y: 55, width: 768, height: 1024 };
+
+    function drawFakeDevice(backdrop){
+
+      paper.canvas.setAttribute('width','100%');
+      paper.canvas.setAttribute('height','100%');
+      paper.canvas.setAttribute("viewBox", "0 0 900 1200");
+      
+      // main outline of device
+      paper.rect( 10, 10, 855, 1110, 20 ).attr( {
+          'fill': 'black',
+          'stroke': 'gray',
+          'stroke-width': 6
+        });
+
+      // home button
+      //paper.circle( 180+6, 655, 34 ).attr( 'fill', '90-#303030-#101010' );
+
+      // square inside home button
+      //paper.rect( 180+6, 655, 22, 22, 5 ).attr({  
+        //'stroke': 'gray',
+        //'stroke-width': 2,
+      //}).translate( -11, -11 );
+
+      if( backdrop ){
+        // reposition backdrop within frame
+        backdrop.attr( BACKDROP_FRAME ).toFront();
+      }
+    }
+
+    return {
+      drawFakeDevice: drawFakeDevice,
+      screenOffset: function(){ return BACKDROP_FRAME; }
+    };
+
+  }
 
   function pointIsWithinView(point,view){
     var offsetFromOrigin = {
@@ -45,19 +110,9 @@ symbiote.UiLocator = function(){
 
   }
 
-  function backdropHover(e){
-    var coords = { 
-      x: e.offsetX - SCREEN_OFFSET.x, 
-      y: e.offsetY - SCREEN_OFFSET.y
-    };
-    viewsHoveredHandler( findViewsAt( coords) );
-  }
-
-  function backdropLeft(e){
-    viewsLeftHandler();
-  }
-
   function showViewLocation( view ) {
+    var screenOffset = erstaz.screenOffset();
+
     viewIndicator.remove();
 
     viewIndicator = paper.rect( 
@@ -71,32 +126,54 @@ symbiote.UiLocator = function(){
         opacity: 0.8,
         stroke: 'black',
       })
-      .translate( SCREEN_OFFSET.x, SCREEN_OFFSET.y );
+      .translate( screenOffset.x, screenOffset.y );
   }
 
   function hideViewLocation() {
     viewIndicator.remove();
   }
 
+  function addBackdropImage(){
+    return paper.image();
+  }
+
   function updateBackdrop(){
+    if( !backdrop ){
+      return;
+    }
+
     var cacheBusterUrl = screenshotUrl+"?"+(new Date()).getTime();
-    backdrop.remove();
-    backdrop = paper.image( cacheBusterUrl, SCREEN_OFFSET.x, SCREEN_OFFSET.y, 320, 480 );
-    backdrop.mousemove( backdropHover );
-    backdrop.mouseout( backdropLeft );
+    backdrop.attr( 'src', cacheBusterUrl );
+  }
+
+  function updateDeviceFamily(deviceFamily){
+    if( !erstaz )
+    {
+      if( deviceFamily === 'ipad' ){
+        erstaz = iPadErsatz(paper);
+      }else{
+        erstaz = iPhoneErsatz(paper);
+      }
+
+      paper.clear();
+      backdrop = addBackdropImage();
+      updateBackdrop();
+
+      erstaz.drawFakeDevice(backdrop);
+    }
   }
 
   function updateViews(views){
     allViews = views;
   }
 
+
   return {
     showViewLocation: showViewLocation,
     hideViewLocation: hideViewLocation,
     updateBackdrop: updateBackdrop,
     updateViews: updateViews,
-    viewsHovered: function(handler){ viewsHoveredHandler = handler; },
-    viewsLeft: function(handler){ viewsLeftHandler = handler; },
+    updateDeviceFamily: updateDeviceFamily
   };
 };
 
@@ -149,24 +226,6 @@ $(document).ready(function() {
     });
     return $found;
   }
-
-  uiLocator.viewsHovered( function(views){
-    var $lis = _.map( views, domListItemForView );
-
-    $('a',$domList).removeClass('hovered-in-locator');
-
-    _.each( $lis, function($li){
-      $li.addClass('hovered-in-locator');
-    });
-  });
-
-  uiLocator.viewsLeft( function(){
-    $('a',$domList).removeClass('hovered-in-locator');
-  });
-  
-  
-  
-
 
 	$("#list-tabs").tabs();
 	$("#inspect-tabs").tabs();
@@ -346,6 +405,8 @@ $(document).ready(function() {
         hideLoadingUI();
       }
     });
+
+    return false;
   }
 
     function updateAccessibleViews( views ) {
@@ -367,6 +428,18 @@ $(document).ready(function() {
     });
   }
 
+  function guessAtDeviceFamilyBasedOnViewDump(data){
+    switch( data.accessibilityFrame.size.height ){
+      case 1024:
+        return 'ipad';
+      case 480:
+        return 'iphone';
+      default:
+        console.warn( "couldn't recognize device family based on screen height of " + data.accessibilityFrame.size.height + "px" );
+        return 'unknown';
+    }
+  }
+
 
   function refreshViewHeirarchy(){
     showLoadingUI();
@@ -379,10 +452,14 @@ $(document).ready(function() {
       success: function(data) {
         console.debug( 'dump returned', data );
 
-        var allViews = flattenViews(data);
+        var deviceFamily = guessAtDeviceFamilyBasedOnViewDump( data ),
+            allViews = flattenViews(data);
+
+        console.debug( 'device appears to be an '+deviceFamily );
 
         updateDumpView( data );
         updateAccessibleViews( allViews );
+        uiLocator.updateDeviceFamily( deviceFamily );
         uiLocator.updateViews( allViews );
       },
       error: function(xhr,status,error) {

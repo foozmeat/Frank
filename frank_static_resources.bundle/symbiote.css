@@ -19,6 +19,10 @@ table.symbiote_shell td {
  vertical-align: top;
 }
 
+div#inspect-tabs {
+  height: 800px; /*ack, wish I knew better*/
+}
+
 div#inspect-tabs li {
   float: right;
   font-size: 12px;
@@ -106,6 +110,7 @@ div#live-view{
 }
 
 div#ui-locator-view{
+  height: 85%;
   text-align: center;
 }
 
